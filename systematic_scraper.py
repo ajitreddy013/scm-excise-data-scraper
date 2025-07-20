@@ -3,316 +3,199 @@ import csv
 import re
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import Select
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
+# --- Helper Functions ---
 def get_real_dropdown_options(driver, textbox_id):
     """Get all available options from an AJAX dropdown, filtering out placeholders"""
     try:
-        # Click on the textbox to open dropdown
         textbox = driver.find_element(By.ID, textbox_id)
         textbox.click()
-        time.sleep(2)
-        
-        # Look for dropdown options
-        options = []
-        
-        # Try different selectors for dropdown options
+        time.sleep(1)
+        options = set()
         selectors = [
-            "ul li",  # List items
-            "div[role='option']",  # Divs with role option
-            ".dropdown-item",  # Bootstrap dropdown items
-            "option",  # Standard options
-            "li",  # Any list items
-            "div"  # Any divs
+            "ul li", "div[role='option']", ".dropdown-item", "option", "li", "div"
         ]
-        
+        placeholder_texts = [
+            "select", "select...", "choose", "choose...", "please select", "select an option", "select option",
+            "type :", "brand :", "brand details", "<< back", "select type", "select brand", "select category"
+        ]
         for selector in selectors:
             try:
                 elements = driver.find_elements(By.CSS_SELECTOR, selector)
                 for element in elements:
                     text = element.text.strip()
-                    if text and text not in options and len(text) > 1:
-                        # Filter out placeholder texts
-                        placeholder_texts = [
-                            "select", "select...", "choose", "choose...", 
-                            "please select", "select an option", "select option",
-                            "type :", "brand :", "brand details", "<< back",
-                            "select type", "select brand", "select category"
-                        ]
-                        
-                        # Check if this is a real option (not a placeholder)
-                        is_placeholder = False
-                        for placeholder in placeholder_texts:
-                            if placeholder.lower() in text.lower():
-                                is_placeholder = True
-                                break
-                        
-                        if not is_placeholder and len(text) > 2:
-                            options.append(text)
-                
+                    if text and len(text) > 1:
+                        if not any(placeholder in text.lower() for placeholder in placeholder_texts):
+                            options.add(text)
                 if options:
                     break
             except:
                 continue
-        
-        # If no options found, try typing to trigger dropdown
         if not options:
-            textbox.send_keys("a")  # Type something to trigger dropdown
-            time.sleep(2)
-            # Try the selectors again
+            textbox.send_keys("a")
+            time.sleep(1)
             for selector in selectors:
                 try:
                     elements = driver.find_elements(By.CSS_SELECTOR, selector)
                     for element in elements:
                         text = element.text.strip()
-                        if text and text not in options and len(text) > 1:
-                            # Filter out placeholder texts
-                            placeholder_texts = [
-                                "select", "select...", "choose", "choose...", 
-                                "please select", "select an option", "select option",
-                                "type :", "brand :", "brand details", "<< back",
-                                "select type", "select brand", "select category"
-                            ]
-                            
-                            is_placeholder = False
-                            for placeholder in placeholder_texts:
-                                if placeholder.lower() in text.lower():
-                                    is_placeholder = True
-                                    break
-                            
-                            if not is_placeholder and len(text) > 2:
-                                options.append(text)
-                    
+                        if text and len(text) > 1:
+                            if not any(placeholder in text.lower() for placeholder in placeholder_texts):
+                                options.add(text)
                     if options:
                         break
                 except:
                     continue
-        
-        return options
+        return list(options)
     except Exception as e:
         print(f"Error getting dropdown options: {e}")
         return []
 
-def extract_clean_table_data(driver, table):
-    """Extract clean, structured data from a table"""
+def extract_clean_table_data(driver):
     try:
+        table = driver.find_element(By.ID, "GridItems")
         rows = table.find_elements(By.TAG_NAME, "tr")
         clean_data = []
-        
         for row in rows:
             cells = row.find_elements(By.TAG_NAME, "td")
-            if len(cells) >= 4:  # Look for rows with enough columns for product data
-                cell_texts = [cell.text.strip() for cell in cells]
-                
-                # Check if this looks like product data (has SrNo, ItemName, Size, Bottles)
-                if (cell_texts[0].isdigit() and 
-                    len(cell_texts) >= 4 and 
-                    any('ML' in cell_texts[i] for i in range(2, min(4, len(cell_texts))))):
-                    
+            if len(cells) >= 4:
+                srno = cells[0].text.strip()
+                itemname = cells[1].text.strip()
+                size = cells[2].text.strip()
+                bottles = cells[3].text.strip()
+                # Skip empty rows
+                if not srno or not itemname or not size or not bottles:
+                    continue
+                # Only keep rows where SrNo is a digit and size contains 'L' (for ML/CL/L)
+                if srno.isdigit() and any(x in size.upper() for x in ["ML", "CL", "L"]):
                     clean_data.append({
-                        'SrNo': cell_texts[0],
-                        'ItemName': cell_texts[1] if len(cell_texts) > 1 else '',
-                        'Size': cell_texts[2] if len(cell_texts) > 2 else '',
-                        'BottlesPerCase': cell_texts[3] if len(cell_texts) > 3 else ''
+                        'SrNo': srno,
+                        'ItemName': itemname,
+                        'Size': size,
+                        'BottlesPerCase': bottles
                     })
-        
         return clean_data
     except Exception as e:
         print(f"Error extracting clean table data: {e}")
         return []
 
+def switch_to_iframe_with_link(driver, link_text, wait, timeout=10):
+    """Switch to the iframe containing a link with the given text. Returns True if found."""
+    driver.switch_to.default_content()
+    iframes = driver.find_elements(By.TAG_NAME, "iframe")
+    for idx, iframe in enumerate(iframes):
+        driver.switch_to.default_content()
+        driver.switch_to.frame(iframe)
+        try:
+            wait.until(EC.presence_of_element_located((By.LINK_TEXT, link_text)))
+            return True
+        except:
+            continue
+    driver.switch_to.default_content()
+    return False
+
 def main():
-    print("🔄 Systematic SCM Excise Scraper - All Types (Skip First Options)")
+    print("🔄 Systematic SCM Excise Scraper - GridItems Table (Robust Iframe)")
     print("=" * 70)
-    
-    # --- Configuration ---
     URL = "https://scmexcise.mahaonline.gov.in/Retailer/"
-    
-    # Setup browser
     options = webdriver.ChromeOptions()
     options.add_argument("--start-maximized")
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    wait = WebDriverWait(driver, 10)
-    
-    all_clean_data = []  # Store all clean extracted data
-    
+    wait = WebDriverWait(driver, 20)
+    all_clean_data = []
     try:
-        # Navigate to the site
         print(f"🌐 Opening website: {URL}")
         driver.get(URL)
         time.sleep(3)
-        
         print("\n🔐 Please login manually...")
         input("Press Enter after logging in...")
-        
-        # Navigate to Brand Details
-        print("\n📋 Navigating to Brand Details...")
-        driver.find_element(By.LINK_TEXT, "Masters").click()
-        time.sleep(2)
-        driver.find_element(By.LINK_TEXT, "Brand Details").click()
-        time.sleep(5)
-        
-        print("✅ Clicked Brand Details link")
-        
-        # Wait for iframe to load and switch to it
-        print("\n🔄 Looking for iframe...")
-        time.sleep(3)
-        
-        # Find and switch to iframe
+        print("\n📋 Locating 'Masters' link in iframes...")
+        found = switch_to_iframe_with_link(driver, "Masters", wait)
+        if not found:
+            print("❌ Could not find 'Masters' link in any iframe. Exiting.")
+            return
+        print("✅ Found and switched to iframe with 'Masters' link.")
+        wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Masters"))).click()
+        wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Brand Details"))).click()
+        # After clicking, may need to switch to another iframe for the main content
+        driver.switch_to.default_content()
+        wait.until(EC.presence_of_element_located((By.ID, "Frame0")))
         iframe = driver.find_element(By.ID, "Frame0")
-        print("✅ Found iframe 'Frame0'")
         driver.switch_to.frame(iframe)
-        print("✅ Switched to iframe")
-        time.sleep(3)
-        
-        print(f"📄 iFrame page title: {driver.title}")
-        print(f"🔗 iFrame URL: {driver.current_url}")
-        
-        # Get all available Types (skip first option)
-        print("\n🔍 Getting all available Types...")
+        wait.until(EC.presence_of_element_located((By.ID, "DDMainType_TextBox")))
         type_options = get_real_dropdown_options(driver, "DDMainType_TextBox")
-        print(f"✅ Found {len(type_options)} real Types: {type_options}")
-        
         if not type_options:
-            print("❌ No real Type options found. Trying manual approach...")
-            # Try some common types
             type_options = ["Fermented Beer", "Mild Beer", "Spirits", "Wines"]
-        
-        # Process all types (skip first option if it's a placeholder)
         for type_index, type_option in enumerate(type_options):
-            print(f"\n{'='*70}")
-            print(f"📝 Processing Type {type_index + 1}/{len(type_options)}: {type_option}")
-            print(f"{'='*70}")
-            
             try:
-                # Select Type
                 type_textbox = driver.find_element(By.ID, "DDMainType_TextBox")
                 type_textbox.clear()
                 type_textbox.send_keys(type_option)
-                time.sleep(2)
-                print(f"✅ Selected Type: {type_option}")
-                
-                # Wait 2-3 seconds for brands to load
-                print("⏳ Waiting 3 seconds for brands to load...")
-                time.sleep(3)
-                
-                # Get available Brands for this Type (skip first option)
-                print(f"🔍 Getting Brands for Type: {type_option}")
+                wait.until(lambda d: d.find_element(By.ID, "DDBrandName_TextBox").is_enabled())
+                time.sleep(1)
                 brand_options = get_real_dropdown_options(driver, "DDBrandName_TextBox")
-                print(f"✅ Found {len(brand_options)} real Brands for {type_option}")
-                
                 if not brand_options:
-                    print(f"⚠️  No real Brand options found for {type_option}. Skipping...")
                     continue
-                
-                # Show first few brands
-                if len(brand_options) > 5:
-                    print(f"   Sample Brands: {brand_options[:5]}...")
-                else:
-                    print(f"   All Brands: {brand_options}")
-                
-                # For each Brand (skip first option), extract clean data
                 for brand_index, brand_option in enumerate(brand_options):
-                    print(f"  📝 Processing Brand {brand_index + 1}/{len(brand_options)}: {brand_option}")
-                    
                     try:
-                        # Select Brand
                         brand_textbox = driver.find_element(By.ID, "DDBrandName_TextBox")
                         brand_textbox.clear()
                         brand_textbox.send_keys(brand_option)
-                        time.sleep(2)
-                        print(f"    ✅ Selected Brand: {brand_option}")
-                        
-                        # Click Show button
                         show_button = driver.find_element(By.ID, "btnShow")
                         show_button.click()
-                        print(f"    🔘 Clicked Show button")
-                        time.sleep(5)  # Wait for data to load
-                        
-                        # Look for data table and extract clean data
-                        tables = driver.find_elements(By.TAG_NAME, "table")
-                        if tables:
-                            # Use the first table that has data
-                            for table in tables:
-                                clean_data = extract_clean_table_data(driver, table)
-                                if clean_data:
-                                    print(f"    ✅ Found {len(clean_data)} clean product records")
-                                    
-                                    # Add metadata to each product record
-                                    for product in clean_data:
-                                        product_with_metadata = {
-                                            'Type': type_option,
-                                            'Brand': brand_option,
-                                            'SrNo': product['SrNo'],
-                                            'ItemName': product['ItemName'],
-                                            'Size': product['Size'],
-                                            'BottlesPerCase': product['BottlesPerCase']
-                                        }
-                                        all_clean_data.append(product_with_metadata)
-                                    break
-                            else:
-                                print(f"    ⚠️  No clean data found for {type_option} - {brand_option}")
-                        else:
-                            print(f"    ⚠️  No table found for {type_option} - {brand_option}")
-                        
+                        wait.until(lambda d: d.find_element(By.ID, "GridItems"), message="Waiting for GridItems table...")
+                        clean_data = extract_clean_table_data(driver)
+                        for product in clean_data:
+                            product_with_metadata = {
+                                'Type': type_option,
+                                'Brand': brand_option,
+                                'SrNo': product['SrNo'],
+                                'ItemName': product['ItemName'],
+                                'Size': product['Size'],
+                                'BottlesPerCase': product['BottlesPerCase']
+                            }
+                            all_clean_data.append(product_with_metadata)
                     except Exception as e:
                         print(f"    ❌ Error processing Brand {brand_option}: {e}")
                         continue
-                
-                print(f"\n✅ Completed processing {type_option}")
-                print(f"📊 Total records so far: {len(all_clean_data)}")
-                
             except Exception as e:
                 print(f"❌ Error processing Type {type_option}: {e}")
                 continue
-        
-        # Save all collected clean data
-        print(f"\n{'='*70}")
-        print(f"💾 Saving all collected clean data...")
-        print(f"📊 Total clean product records collected: {len(all_clean_data)}")
-        print(f"{'='*70}")
-        
-        if all_clean_data:
-            filename = "systematic_brand_details.csv"
-            with open(filename, "w", newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=['Type', 'Brand', 'SrNo', 'ItemName', 'Size', 'BottlesPerCase'])
-                writer.writeheader()
-                writer.writerows(all_clean_data)
-            
-            print(f"✅ Clean data successfully saved to {filename}")
-            print(f"📁 File contains {len(all_clean_data)} product records")
-            
-            # Show summary by type
-            type_summary = {}
-            for record in all_clean_data:
-                type_name = record['Type']
-                if type_name not in type_summary:
-                    type_summary[type_name] = {'brands': set(), 'products': 0}
-                type_summary[type_name]['brands'].add(record['Brand'])
-                type_summary[type_name]['products'] += 1
-            
-            print(f"\n📋 Summary by Type:")
-            for type_name, stats in type_summary.items():
-                print(f"  {type_name}: {len(stats['brands'])} brands, {stats['products']} products")
-            
-            # Show sample data
-            print(f"\n📋 Sample clean data (first 5 records):")
-            for i, record in enumerate(all_clean_data[:5]):
-                print(f"  Record {i+1}: {record['Type']} | {record['Brand']} | {record['ItemName']} | {record['Size']} | {record['BottlesPerCase']} bottles/case")
-        else:
-            print("❌ No clean data was collected")
-        
-        # Switch back to main frame
+        # Deduplicate
+        seen = set()
+        deduped_data = []
+        for row in all_clean_data:
+            key = (row['Type'], row['Brand'], row['ItemName'], row['Size'], row['BottlesPerCase'])
+            if key not in seen:
+                seen.add(key)
+                deduped_data.append(row)
+        # Save full CSV
+        filename = "systematic_brand_details.csv"
+        with open(filename, "w", newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=['Type', 'Brand', 'SrNo', 'ItemName', 'Size', 'BottlesPerCase'])
+            writer.writeheader()
+            writer.writerows(deduped_data)
+        print(f"✅ Clean data successfully saved to {filename}")
+        # Save Brand/Size only CSV
+        brand_size_seen = set()
+        brand_size_rows = []
+        for row in deduped_data:
+            key = (row['Brand'], row['Size'])
+            if key not in brand_size_seen:
+                brand_size_seen.add(key)
+                brand_size_rows.append({'Brand': row['Brand'], 'Size': row['Size']})
+        with open("clean_brand_size.csv", "w", newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=['Brand', 'Size'])
+            writer.writeheader()
+            writer.writerows(brand_size_rows)
+        print(f"✅ Brand/Size data saved to clean_brand_size.csv")
         driver.switch_to.default_content()
-        print("✅ Switched back to main frame")
-        
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
-    
     finally:
         print("\n⏸️  Keeping browser open for inspection...")
         print("Press Enter to close...")

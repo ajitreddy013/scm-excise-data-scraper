@@ -83,23 +83,8 @@ def extract_clean_table_data(driver):
         print(f"Error extracting clean table data: {e}")
         return []
 
-def switch_to_iframe_with_link(driver, link_text, wait, timeout=10):
-    """Switch to the iframe containing a link with the given text. Returns True if found."""
-    driver.switch_to.default_content()
-    iframes = driver.find_elements(By.TAG_NAME, "iframe")
-    for idx, iframe in enumerate(iframes):
-        driver.switch_to.default_content()
-        driver.switch_to.frame(iframe)
-        try:
-            wait.until(EC.presence_of_element_located((By.LINK_TEXT, link_text)))
-            return True
-        except:
-            continue
-    driver.switch_to.default_content()
-    return False
-
 def main():
-    print("🔄 Systematic SCM Excise Scraper - GridItems Table (Robust Iframe)")
+    print("🔄 Systematic SCM Excise Scraper - Correct Navigation")
     print("=" * 70)
     URL = "https://scmexcise.mahaonline.gov.in/Retailer/"
     options = webdriver.ChromeOptions()
@@ -113,16 +98,10 @@ def main():
         time.sleep(3)
         print("\n🔐 Please login manually...")
         input("Press Enter after logging in...")
-        print("\n📋 Locating 'Masters' link in iframes...")
-        found = switch_to_iframe_with_link(driver, "Masters", wait)
-        if not found:
-            print("❌ Could not find 'Masters' link in any iframe. Exiting.")
-            return
-        print("✅ Found and switched to iframe with 'Masters' link.")
+        print("\n📋 Clicking 'Masters' and 'Brand Details' on main page...")
         wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Masters"))).click()
         wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Brand Details"))).click()
-        # After clicking, may need to switch to another iframe for the main content
-        driver.switch_to.default_content()
+        # Now switch to Frame0 for scraping
         wait.until(EC.presence_of_element_located((By.ID, "Frame0")))
         iframe = driver.find_element(By.ID, "Frame0")
         driver.switch_to.frame(iframe)

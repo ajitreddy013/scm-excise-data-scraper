@@ -7,6 +7,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.support.ui import Select
 
 # --- Helper Functions ---
 def get_real_dropdown_options(driver, textbox_id):
@@ -83,8 +84,125 @@ def extract_clean_table_data(driver):
         print(f"Error extracting clean table data: {e}")
         return []
 
+def print_all_links(driver):
+    print("\n--- All clickable links on main page ---")
+    links = driver.find_elements(By.TAG_NAME, "a")
+    for link in links:
+        text = link.text.strip()
+        href = link.get_attribute('href')
+        if text:
+            print(f"  Link: '{text}' | href: {href}")
+    return [link.text.strip() for link in links if link.text.strip()]
+
+def click_link_by_text(driver, wait, text, partial=False):
+    try:
+        if not partial:
+            elem = wait.until(EC.element_to_be_clickable((By.LINK_TEXT, text)))
+        else:
+            elem = wait.until(EC.element_to_be_clickable((By.PARTIAL_LINK_TEXT, text)))
+        elem.click()
+        print(f"✅ Clicked link: '{text}' (partial={partial})")
+        return True
+    except Exception as e:
+        print(f"❌ Could not click link: '{text}' (partial={partial}) - {e}")
+        return False
+
+def print_iframe_elements(driver):
+    print("\n--- Diagnosing iframes and elements after clicking 'Brand Details' ---")
+    iframes = driver.find_elements(By.TAG_NAME, "iframe")
+    print(f"Found {len(iframes)} iframes:")
+    for idx, iframe in enumerate(iframes):
+        iframe_id = iframe.get_attribute('id')
+        iframe_name = iframe.get_attribute('name')
+        print(f"  [{idx}] id: {iframe_id}, name: {iframe_name}")
+    for idx, iframe in enumerate(iframes):
+        iframe_id = iframe.get_attribute('id')
+        iframe_name = iframe.get_attribute('name')
+        print(f"\n--- Iframe [{idx}] id: {iframe_id}, name: {iframe_name} ---")
+        driver.switch_to.default_content()
+        driver.switch_to.frame(iframe)
+        # Print all select elements with IDs
+        selects = driver.find_elements(By.TAG_NAME, "select")
+        for sel in selects:
+            sel_id = sel.get_attribute('id')
+            print(f"  Select: id={sel_id}")
+        # Print all input elements with IDs
+        inputs = driver.find_elements(By.TAG_NAME, "input")
+        for inp in inputs:
+            inp_id = inp.get_attribute('id')
+            inp_type = inp.get_attribute('type')
+            print(f"  Input: id={inp_id}, type={inp_type}")
+        # Print all tables with IDs
+        tables = driver.find_elements(By.TAG_NAME, "table")
+        for tab in tables:
+            tab_id = tab.get_attribute('id')
+            print(f"  Table: id={tab_id}")
+        driver.switch_to.default_content()
+
+def find_first_two_dropdowns(driver):
+    # Try to find the first two <select> or <input> elements that look like dropdowns
+    selects = driver.find_elements(By.TAG_NAME, "select")
+    if len(selects) >= 2:
+        return selects[0], selects[1]
+    # If not enough <select>, try <input> with type=text or type=search
+    inputs = [el for el in driver.find_elements(By.TAG_NAME, "input") if el.get_attribute('type') in (None, '', 'text', 'search')]
+    if len(inputs) >= 2:
+        return inputs[0], inputs[1]
+    # Fallback: return None
+    return None, None
+
+def get_dropdown_options_generic(dropdown):
+    # For <select> elements
+    if dropdown.tag_name == 'select':
+        options = dropdown.find_elements(By.TAG_NAME, 'option')
+        return [opt.text.strip() for opt in options if opt.text.strip()]
+    # For <input> elements, try to click and get visible list items
+    dropdown.click()
+    time.sleep(1)
+    items = dropdown.find_elements(By.XPATH, "../../..//li")
+    return [item.text.strip() for item in items if item.text.strip()]
+
+def print_all_elements_in_frame(driver):
+    print("\n--- All elements in Frame0 ---")
+    elements = driver.find_elements(By.XPATH, '//*')
+    for el in elements:
+        tag = el.tag_name
+        el_id = el.get_attribute('id')
+        el_name = el.get_attribute('name')
+        el_type = el.get_attribute('type')
+        el_class = el.get_attribute('class')
+        text = el.text.strip()
+        if el_id or el_name or el_type or el_class or text:
+            print(f"  <{tag}> id={el_id} name={el_name} type={el_type} class={el_class} text='{text[:40]}'")
+
+def get_combobox_options(driver, textbox_id, option_list_id, wait):
+    textbox = driver.find_element(By.ID, textbox_id)
+    textbox.click()
+    # Wait for the option list to be visible
+    wait.until(lambda d: d.find_element(By.ID, option_list_id).is_displayed())
+    option_list = driver.find_element(By.ID, option_list_id)
+    items = option_list.find_elements(By.TAG_NAME, 'li')
+    return [item.text.strip() for item in items if item.text.strip() and 'select' not in item.text.lower()]
+
+def select_combobox_option(driver, textbox_id, option_list_id, value, wait):
+    textbox = driver.find_element(By.ID, textbox_id)
+    textbox.clear()
+    textbox.send_keys(value)
+    time.sleep(0.5)
+    textbox.click()
+    wait.until(lambda d: d.find_element(By.ID, option_list_id).is_displayed())
+    option_list = driver.find_element(By.ID, option_list_id)
+    items = option_list.find_elements(By.TAG_NAME, 'li')
+    for item in items:
+        if item.text.strip() == value:
+            driver.execute_script("arguments[0].scrollIntoView();", item)
+            item.click()
+            time.sleep(0.5)
+            return True
+    return False
+
 def main():
-    print("🔄 Systematic SCM Excise Scraper - Correct Navigation")
+    print("🔄 Systematic SCM Excise Scraper - AJAX ComboBox Robust Waits")
     print("=" * 70)
     URL = "https://scmexcise.mahaonline.gov.in/Retailer/"
     options = webdriver.ChromeOptions()
@@ -98,40 +216,59 @@ def main():
         time.sleep(3)
         print("\n🔐 Please login manually...")
         input("Press Enter after logging in...")
-        print("\n📋 Clicking 'Masters' and 'Brand Details' on main page...")
-        wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Masters"))).click()
-        wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Brand Details"))).click()
-        # Now switch to Frame0 for scraping
+        link_texts = print_all_links(driver)
+        print("\n📋 Trying to click 'Masters' on main page...")
+        found = click_link_by_text(driver, wait, "Masters")
+        if not found:
+            found = click_link_by_text(driver, wait, "Masters", partial=True)
+        if not found:
+            print("❌ 'Masters' link not found. Available links:")
+            for t in link_texts:
+                print(f"  '{t}'")
+            return
+        print("\n📋 Trying to click 'Brand Details' on main page...")
+        link_texts = print_all_links(driver)
+        found = click_link_by_text(driver, wait, "Brand Details")
+        if not found:
+            found = click_link_by_text(driver, wait, "Brand Details", partial=True)
+        if not found:
+            print("❌ 'Brand Details' link not found. Available links:")
+            for t in link_texts:
+                print(f"  '{t}'")
+            return
+        # Switch to Frame0 for scraping
         wait.until(EC.presence_of_element_located((By.ID, "Frame0")))
         iframe = driver.find_element(By.ID, "Frame0")
         driver.switch_to.frame(iframe)
-        wait.until(EC.presence_of_element_located((By.ID, "DDMainType_TextBox")))
-        type_options = get_real_dropdown_options(driver, "DDMainType_TextBox")
-        if not type_options:
-            type_options = ["Fermented Beer", "Mild Beer", "Spirits", "Wines"]
-        for type_index, type_option in enumerate(type_options):
+        time.sleep(2)
+        # Get all type options from ComboBox
+        type_options = get_combobox_options(driver, "DDMainType_TextBox", "DDMainType_OptionList", wait)
+        print(f"Found {len(type_options)} type options: {type_options}")
+        for type_val in type_options:
             try:
-                type_textbox = driver.find_element(By.ID, "DDMainType_TextBox")
-                type_textbox.clear()
-                type_textbox.send_keys(type_option)
-                wait.until(lambda d: d.find_element(By.ID, "DDBrandName_TextBox").is_enabled())
+                # Select type
+                select_combobox_option(driver, "DDMainType_TextBox", "DDMainType_OptionList", type_val, wait)
                 time.sleep(1)
-                brand_options = get_real_dropdown_options(driver, "DDBrandName_TextBox")
-                if not brand_options:
-                    continue
-                for brand_index, brand_option in enumerate(brand_options):
+                # Get all brand options for this type
+                brand_options = get_combobox_options(driver, "DDBrandName_TextBox", "DDBrandName_OptionList", wait)
+                print(f"  Type '{type_val}': {len(brand_options)} brands")
+                for brand_val in brand_options:
                     try:
-                        brand_textbox = driver.find_element(By.ID, "DDBrandName_TextBox")
-                        brand_textbox.clear()
-                        brand_textbox.send_keys(brand_option)
-                        show_button = driver.find_element(By.ID, "btnShow")
-                        show_button.click()
-                        wait.until(lambda d: d.find_element(By.ID, "GridItems"), message="Waiting for GridItems table...")
+                        select_combobox_option(driver, "DDBrandName_TextBox", "DDBrandName_OptionList", brand_val, wait)
+                        time.sleep(1)
+                        # Click Show button
+                        try:
+                            show_button = driver.find_element(By.ID, "btnShow")
+                            show_button.click()
+                            time.sleep(2)
+                        except:
+                            pass
+                        # Extract table data
                         clean_data = extract_clean_table_data(driver)
                         for product in clean_data:
                             product_with_metadata = {
-                                'Type': type_option,
-                                'Brand': brand_option,
+                                'Type': type_val,
+                                'Brand': brand_val,
                                 'SrNo': product['SrNo'],
                                 'ItemName': product['ItemName'],
                                 'Size': product['Size'],
@@ -139,10 +276,10 @@ def main():
                             }
                             all_clean_data.append(product_with_metadata)
                     except Exception as e:
-                        print(f"    ❌ Error processing Brand {brand_option}: {e}")
+                        print(f"    ❌ Error processing Brand '{brand_val}': {e}")
                         continue
             except Exception as e:
-                print(f"❌ Error processing Type {type_option}: {e}")
+                print(f"❌ Error processing Type '{type_val}': {e}")
                 continue
         # Deduplicate
         seen = set()

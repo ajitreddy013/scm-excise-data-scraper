@@ -8,6 +8,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import Select
+import os
 
 # --- Helper Functions ---
 def get_real_dropdown_options(driver, textbox_id):
@@ -201,8 +202,13 @@ def select_combobox_option(driver, textbox_id, option_list_id, value, wait):
             return True
     return False
 
+def save_screenshot(driver, label):
+    filename = f"screenshot_{label}.png"
+    driver.save_screenshot(filename)
+    print(f"📸 Screenshot saved: {filename}")
+
 def main():
-    print("🔄 Systematic SCM Excise Scraper - AJAX ComboBox Robust Waits")
+    print("🔄 Systematic SCM Excise Scraper - AJAX ComboBox Debug Screenshot")
     print("=" * 70)
     URL = "https://scmexcise.mahaonline.gov.in/Retailer/"
     options = webdriver.ChromeOptions()
@@ -237,10 +243,25 @@ def main():
                 print(f"  '{t}'")
             return
         # Switch to Frame0 for scraping
+        print("Switching to Frame0...")
         wait.until(EC.presence_of_element_located((By.ID, "Frame0")))
         iframe = driver.find_element(By.ID, "Frame0")
         driver.switch_to.frame(iframe)
         time.sleep(2)
+        print("Saving screenshot after switching to Frame0...")
+        save_screenshot(driver, "after_frame0")
+        print("Looking for DDMainType_TextBox and DDBrandName_TextBox...")
+        type_box = driver.find_elements(By.ID, "DDMainType_TextBox")
+        brand_box = driver.find_elements(By.ID, "DDBrandName_TextBox")
+        print(f"  Found {len(type_box)} elements with id=DDMainType_TextBox")
+        print(f"  Found {len(brand_box)} elements with id=DDBrandName_TextBox")
+        print("Looking for DDMainType_OptionList and DDBrandName_OptionList...")
+        type_list = driver.find_elements(By.ID, "DDMainType_OptionList")
+        brand_list = driver.find_elements(By.ID, "DDBrandName_OptionList")
+        print(f"  Found {len(type_list)} elements with id=DDMainType_OptionList")
+        print(f"  Found {len(brand_list)} elements with id=DDBrandName_OptionList")
+        # Continue with the rest of the script as before...
+        # (You can uncomment the rest of the scraping logic here after debugging)
         # Get all type options from ComboBox
         type_options = get_combobox_options(driver, "DDMainType_TextBox", "DDMainType_OptionList", wait)
         print(f"Found {len(type_options)} type options: {type_options}")

@@ -196,3 +196,4 @@ For issues and questions:
 ---
 
 **Note**: This scraper is designed for legitimate data collection purposes. Please use responsibly and in accordance with the website's terms of service.
+ 
